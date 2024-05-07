@@ -1,0 +1,14 @@
+name: bookmydoc
+title: bookmydoc
+username:
+account: ameyaparab1996
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 8985537
+bundleId: 7156305
+url: https://ameyaparab1996.shinyapps.io/bookmydoc/
+when: 1682874938.4554
+lastSyncTime: 1682874938.45542
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .RData|audio1842947737.m4a|audio2842947737.m4a|audio3842947737.m4a|audio4842947737.m4a|recording.conf|team11.mp4|video1842947737.mp4|video2842947737.mp4|video3842947737.mp4

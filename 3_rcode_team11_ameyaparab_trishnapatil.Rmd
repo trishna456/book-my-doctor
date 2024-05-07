@@ -1,0 +1,318 @@
+---
+title: "ADT Final Project Part 2 - R Markdown Code"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-04-01"
+---
+
+Team 11: Ameya Parab & Trishna Patil
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Importing and loading necessary libraries
+
+```{r, eval = FALSE}
+#install.packages("RMySQL")
+#install.packages("DBI")
+
+library(RMySQL)
+library(DBI)
+```
+
+
+Connecting to DB
+
+```{r, eval = FALSE}
+con <- dbConnect(MySQL(), user = "root", password = "root1234", dbname = "doctors_appointment_db", host = "34.170.21.186", bulk = TRUE, prefer_large_objects = TRUE)
+
+dbListTables(con)
+```
+
+Importing the raw data from CSV
+Author: Ameya Parab
+
+```{r, eval = FALSE}
+file_path <- "C:\\Users\\ameya\\Documents\\IUB\\Spring 2023\\Applied Database Technologies\\Project\\DAC_NationalDownloadableFile.csv"
+df <- read.csv(file_path, header = TRUE)
+
+#filtering data to only contain data for state of Indiana and removing rows having null values for certain columns
+filtered_df <- subset(df, st == "IN" & Med_sch != "OTHER" & Cred != "")
+nrow(filtered_df)
+
+write.csv(filtered_df, file = "C:\\Users\\ameya\\Documents\\IUB\\Spring 2023\\Applied Database Technologies\\Project\\filtered_df.csv", row.names = FALSE)
+
+```
+
+Inserting data into the different normalized tables 
+Reference: https://www.geeksforgeeks.org/how-to-write-entire-dataframe-into-mysql-table-in-r/
+
+STEP 3: Insert data in Doctors_temp table 
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+doctors_df <- filtered_df[, c("NPI", "frst_nm", "mid_nm", "lst_nm", "gndr")]
+doctors_df <- doctors_df[!duplicated(doctors_df$NPI), ]
+dbWriteTable(con, "Doctors_temp", doctors_df, overWrite=FALSE, append=TRUE)
+```
+
+STEP 5: Inserting into Contacts table
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+contacts_df <- filtered_df[, c("NPI", "phn_numbr")]
+contacts_df$phn_numbr <- paste("(", substr(contacts_df$phn_numbr,0,3), ") -", substr(contacts_df$phn_numbr,4,6), "-",  substr(contacts_df$phn_numbr,7,10))
+
+query <- paste0("INSERT INTO Contacts VALUES ", paste0("(", contacts_df$NPI, ", '", contacts_df$phn_numbr, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 6: Inserting into Services table
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+services_df <- filtered_df[, c("NPI", "Telehlth", "ind_assgn", "grp_assgn")]
+services_df <- services_df[!duplicated(services_df$NPI), ]
+
+query <- paste0("INSERT INTO Services VALUES ", paste0("(", services_df$NPI, ", '", services_df$Telehlth, "', '", services_df$ind_assgn, "', '", services_df$grp_assgn, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 7: Inserting into Schools table
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+schools <- filtered_df$Med_sch
+schools <- unique(schools)
+
+query <- paste0("INSERT INTO Schools (SchoolName) VALUES ", paste0("('", schools, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+
+STEP 8: Inserting into Education table
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+education_df <- filtered_df[, c("NPI", "Med_sch", "Cred", "Grd_yr")]
+dbWriteTable(con, "Education_temp", education_df, APPEND = TRUE)
+
+```
+
+
+STEP 9: Inserting into Addresses table
+Author: Ameya Parab
+
+```{r, eval = FALSE}
+addresses_df <- filtered_df[, c("adrs_id", "adr_ln_1", "adr_ln_2", "cty", "st", "zip")]
+addresses_df$zip <- paste(substr(addresses_df$zip,0,5), "-",substr(addresses_df$zip,6,9))
+addresses_df <- addresses_df[!duplicated(addresses_df$adrs_id), ]
+
+query <- paste0("INSERT INTO Addresses VALUES ", paste0("('", addresses_df$adrs_id, "', '", addresses_df$adr_ln_1, "', '", addresses_df$adr_ln_2, "', '", addresses_df$cty, "', '", addresses_df$st, "', '", addresses_df$zip, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 10: Insert data in Organizations_temp table 
+Author: Ameya Parab
+
+```{r, eval = FALSE}
+organizations_df <- filtered_df[, c("org_pac_id", "org_nm", "adrs_id", "num_org_mem")]
+organizations_df <- organizations_df[!is.na(organizations_df$org_pac_id), ]
+organizations_df <- subset(organizations_df, !duplicated(organizations_df$org_pac_id))
+dbWriteTable(con, "Organizations_temp", organizations_df, overWrite=FALSE, append=TRUE)
+```
+
+STEP 12: Inserting into DoctorClinics table
+Author: Ameya Parab
+
+```{r, eval = FALSE}
+clinics_df <- filtered_df[, c("NPI", "adrs_id", "org_pac_id")]
+clinics_df <- clinics_df[is.na(clinics_df$org_pac_id), ]
+clinics_df <- clinics_df[!duplicated(clinics_df$NPI), ]
+
+query <- paste0("INSERT INTO DoctorClinics VALUES ", paste0("(", clinics_df$NPI, ", '", clinics_df$adrs_id, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 13: Inserting into DoctorOrganizations table
+Author: Ameya Parab
+
+```{r, eval = FALSE}
+doctor_organizations_df <- filtered_df[, c("NPI", "org_pac_id", "adrs_id")]
+doctor_organizations_df <- doctor_organizations_df[complete.cases(doctor_organizations_df$org_pac_id), ]
+duplicates_df <- doctor_organizations_df[!duplicated(doctor_organizations_df$adrs_id), ]
+duplicates_df$IsHospital <- rep(1, nrow(duplicates_df))
+uniques_df <- doctor_organizations_df[duplicated(doctor_organizations_df$adrs_id), ]
+
+query <- paste0("INSERT INTO DoctorOrganizations VALUES ", paste0("(", duplicates_df$NPI, ", '", duplicates_df$org_pac_id, "', '", duplicates_df$IsHospital, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 14: Inserting into Specialties table
+Author: Trishna Patil
+
+```{r, eval = FALSE}
+specialties <- c(filtered_df$pri_spec, filtered_df$sec_spec_1, filtered_df$sec_spec_2, filtered_df$sec_spec_3, filtered_df$sec_spec_4)
+specialties <- unique(specialties)
+
+query <- paste0("INSERT INTO Specialties (SpecialtyName) VALUES ", paste0("('", specialties, "')", collapse = ", "))
+dbExecute(con, query)
+```
+
+STEP 15: Inserting into DoctorSpecialties table
+Author: Trishna Patil & Ameya Parab
+
+```{r, eval = FALSE}
+doctor_specialties_df <- filtered_df[, c("NPI", "pri_spec", "sec_spec_1", "sec_spec_2", "sec_spec_3", "sec_spec_4")]
+
+primary_specialty_df <- data.frame(NPI = doctor_specialties_df$NPI, specialty = doctor_specialties_df$pri_spec)
+primary_specialty_df$IsPrimary <- rep(1, nrow(primary_specialty_df))
+
+
+secondary_specialty1_df <- data.frame(NPI = doctor_specialties_df$NPI, specialty = doctor_specialties_df$sec_spec_1)
+secondary_specialty1_df[complete.cases(secondary_specialty1_df$specialty), ]
+secondary_specialty1_df$IsPrimary <- rep(0, nrow(secondary_specialty1_df))
+
+secondary_specialty2_df <- data.frame(NPI = doctor_specialties_df$NPI, specialty = doctor_specialties_df$sec_spec_2)
+secondary_specialty2_df <- secondary_specialty2_df[complete.cases(secondary_specialty2_df$specialty), ]
+secondary_specialty2_df$IsPrimary <- rep(0, nrow(secondary_specialty2_df))
+
+secondary_specialty3_df <- data.frame(NPI = doctor_specialties_df$NPI, specialty = doctor_specialties_df$sec_spec_3)
+secondary_specialty3_df <- secondary_specialty3_df[complete.cases(secondary_specialty3_df$specialty), ]
+secondary_specialty3_df$IsPrimary <- rep(0, nrow(secondary_specialty3_df))
+
+secondary_specialty4_df <- data.frame(NPI = doctor_specialties_df$NPI, specialty = doctor_specialties_df$sec_spec_4)
+secondary_specialty4_df <- secondary_specialty4_df[complete.cases(secondary_specialty4_df$specialty), ]
+secondary_specialty4_df$IsPrimary <- rep(0, nrow(secondary_specialty4_df))
+
+nrow(primary_specialty_df)
+combined_df <- rbind(primary_specialty_df, secondary_specialty1_df, secondary_specialty2_df, secondary_specialty3_df, secondary_specialty4_df)
+nrow(combined_df)
+dbWriteTable(con, "DoctorSpecialties_temp", combined_df, APPEND = TRUE)
+```
+
+```{r, eval = FALSE}
+library(RColorBrewer)
+# Create example data frame
+
+credentials_df <- dbGetQuery(con, "SELECT Credential, COUNT(*) AS Num_Of_Doctors FROM Education WHERE Credential != '' GROUP BY Credential LIMIT 10")
+color <- brewer.pal(length(credentials$Credential), "Set3")
+# Create bar plot
+plot_ly(credentials_df, x = ~Credential, y = ~Num_Of_Doctors, type = 'bar', colors = list(color)) %>%
+layout(yaxis = list(type = 'log'))
+```
+
+```{r, eval = FALSE}
+library(leaflet)
+#install.packages("tmaptools")
+library(tmaptools)
+address_df <- dbGetQuery(con, "SELECT CONCAT(d.FirstName, ' ', d.LastName) AS DoctorName, CONCAT(a.AddressLine1, ', ', a.City, ', ', a.State) AS Address
+                                      FROM Addresses a
+                                      INNER JOIN DoctorClinics dc
+                                      ON a.AddressID = dc.AddressID
+                                      INNER JOIN Doctors d
+                                      ON dc.DoctorId = d.DoctorId")
+
+address_df <- address_df[complete.cases(address_df), ]
+#coord_df <- data.frame(Name = character(0), lat = character(0), lng = character(0))
+names <- list()
+lat <- list()
+lng <- list()
+
+sum(is.na(address_df$Address))
+for (i in 1:(length(address_df$Adress - 1))) {
+     if(length(geocode_OSM(address_df$Address[i])) != 0)
+      cod <- geocode_OSM(address_df$Address[i])
+      names <- c(names, address_df$DoctorName[i])
+      lat <- c(lat, cod$coords[1])
+      lng <- c(lng, cod$coords[2])
+}
+
+coord_df <- data.frame(
+  Name = names,
+  lat = lat,
+  lng = lng
+)
+#coord_df$lat <- coords_df$coords[1]
+#coord_df$lng <- coords_df$coords[2]
+
+coord_df
+leaflet(coord_df) %>%
+      addTiles() %>%
+      addMarkers(label = ~DoctorName, popup = ~DoctorName, clusterOptions = markerClusterOptions())
+```
+
+```{r, eval = FALSE}
+
+doctors_df <- dbGetQuery(con, "SELECT DISTINCT(DoctorID), DoctorName, SpecialtyName, Credential, GraduationYear, Teleconsultation FROM doctor_details")
+doctors_df
+```
+
+
+```{r, eval = FALSE}
+
+doctors <- dbGetQuery(con, "SELECT DISTINCT(DoctorID) FROM doctor_details LIMIT 10")
+for(i in 1:length(doctors$DoctorID)){
+  query <- paste0("INSERT INTO AvailableAppointments VALUES (", doctors$DoctorID[i], ",'2023-05-07', '9:00')")
+  dbExecute(con, query)
+}
+```
+
+```{r, eval = FALSE}
+library(dplyr)
+library(tidygeocoder)
+dc_addresses <- tribble( ~name,~addr,
+"White House", "1600 Pennsylvania Ave Washington, DC",
+"National Academy of Sciences", "2101 Constitution Ave NW, Washington, DC 20418",
+"Department of Justice", "950 Pennsylvania Ave NW, Washington, DC 20530",
+"Supreme Court", "1 1st St NE, Washington, DC 20543",
+"Washington Monument", "2 15th St NW, Washington, DC 20024")
+coordinates <- dc_addresses %>%
+  geocode(addr)
+print(coordinates)
+```
+```{r, eval = FALSE}
+address_df <- dbGetQuery(con, "SELECT DISTINCT DoctorId, DoctorName, Address 
+FROM (SELECT d.DoctorId, CONCAT(d.FirstName, ' ', d.LastName) AS DoctorName, CONCAT(a.AddressLine1, ', ', a.City, ', ', a.State) AS Address
+	FROM Addresses a
+	INNER JOIN DoctorClinics dc
+	ON a.AddressID = dc.AddressID
+	INNER JOIN Doctors d
+	ON dc.DoctorId = d.DoctorId
+UNION 
+	SELECT d.DoctorId, CONCAT(d.FirstName, ' ', d.LastName) AS DoctorName, CONCAT(a.AddressLine1, ', ', a.City, ', ', a.State) AS Address
+	FROM Addresses a
+	INNER JOIN Organizations org
+	ON a.AddressID = org.AddressID
+	INNER JOIN DoctorOrganizations dorg
+	ON org.OrganizationID = dorg.OrganizationID
+	INNER JOIN Doctors d
+	ON dorg.DoctorId = d.DoctorId) AS doctor_addresses")
+
+lat <- list()
+long <- list()
+for (i in 1:length(address_df$Address)) {
+      addresses <- tribble( ~name, ~addr, address_df$DoctorName[i], address_df$Address[i])
+      geocoded_results <- addresses %>% geocode(addr)
+      lat <- c(lat,geocoded_results$lat)
+      long <- c(long,geocoded_results$long)
+}
+    
+coord_df <- address_df[, c("DoctorId", "DoctorName")]
+coord_df$lat <- unlist(lat, recursive = TRUE)
+coord_df$lng <- unlist(long, recursive = TRUE)
+dbWriteTable(con, "Coordinates_Temp", na.omit(coord_df), overWrite=FALSE, append=TRUE)
+```
+
+```{r, eval = FALSE}
+
+```
+
+Disconnect Database
+
+```{r, eval = FALSE}
+dbDisconnect(con)
+```
